@@ -1,0 +1,43 @@
+<?php
+
+declare(strict_types=1);
+
+namespace OpenColibri\Starter\DatasetBuilder\Tests\Unit\Fetch;
+
+use PHPUnit\Framework\TestCase;
+
+use function OpenColibri\Starter\DatasetBuilder\Fetch\import_fetch_request_headers;
+
+final class ImportFetchHttpHeadersTest extends TestCase
+{
+    public function testUserAgentLooksLikeBrowserNotImportBot(): void
+    {
+        $headers = import_fetch_request_headers();
+
+        static::assertArrayHasKey('User-Agent', $headers);
+        static::assertStringNotContainsString('starter-import', $headers['User-Agent']);
+        static::assertStringContainsString('Chrome', $headers['User-Agent']);
+    }
+
+    public function testAcceptLanguageIsFrenchFixed(): void
+    {
+        $headers = import_fetch_request_headers();
+
+        static::assertSame('fr-FR,fr;q=0.9,en;q=0.8', $headers['Accept-Language']);
+    }
+
+    public function testIncludesAcceptAndUpgradeInsecureRequests(): void
+    {
+        $headers = import_fetch_request_headers();
+
+        static::assertArrayHasKey('Accept', $headers);
+        static::assertStringContainsString('text/html', $headers['Accept']);
+        static::assertSame('1', $headers['Upgrade-Insecure-Requests']);
+    }
+
+    public function testDoesNotForceAcceptEncoding(): void
+    {
+        // A forced Accept-Encoding disables the HTTP client's automatic decompression (e.g. Brotli bodies stay binary).
+        static::assertArrayNotHasKey('Accept-Encoding', import_fetch_request_headers());
+    }
+}

@@ -1,0 +1,68 @@
+{
+    "name": "opencolibri/starter-dataset-builder",
+    "description": "Castor tasks building datasets with AI: from a description, or from the catalog of an existing website",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "sylius",
+        "castor",
+        "starter"
+    ],
+    "homepage": "https://github.com/opencolibri/colibri-starter",
+    "authors": [
+        {
+            "name": "Loïc Frémont",
+            "email": "lfremont@jolicode.com"
+        },
+        {
+            "name": "Jérôme Gangneux",
+            "email": "jerome@gangneux.net"
+        }
+    ],
+    "require": {
+        "php": ">=8.3",
+        "opencolibri/starter-core": "self.version",
+        "symfony/ai-ollama-platform": "^0.12.0",
+        "symfony/ai-open-router-platform": "^0.12.0",
+        "symfony/ai-platform": "^0.12.0",
+        "symfony/dotenv": "^7.4|^8.0",
+        "symfony/filesystem": "^7.4|^8.0",
+        "symfony/http-client": "^7.4|^8.0",
+        "symfony/yaml": "^7.4|^8.0"
+    },
+    "suggest": {
+        "jolicode/castor-api": "Expose the tasks over HTTP"
+    },
+    "autoload": {
+        "psr-4": {
+            "OpenColibri\\Starter\\DatasetBuilder\\": "src/"
+        },
+        "files": [
+            "src/constants.php",
+            "src/paths.php",
+            "src/url.php",
+            "src/name.php",
+            "src/catalog.php",
+            "src/Images/download.php",
+            "src/Ai/platform.php",
+            "src/Ai/enrichment.php",
+            "src/Ai/grouping.php",
+            "src/Ai/curation.php",
+            "src/Ai/catalog.php",
+            "src/Fetch/http.php",
+            "src/Fetch/sitemap.php",
+            "src/Fetch/fetch.php",
+            "src/functions.php"
+        ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "OpenColibri\\Starter\\DatasetBuilder\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "branch-alias": {
+            "dev-main": "0.1-dev"
+        }
+    }
+}

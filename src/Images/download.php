@@ -1,0 +1,317 @@
+<?php
+
+declare(strict_types=1);
+
+namespace OpenColibri\Starter\DatasetBuilder;
+
+use function Castor\io;
+
+function normalize_image_url(string $url): string
+{
+    $url = trim($url);
+
+    if (str_starts_with($url, '//')) {
+        return 'https:' . $url;
+    }
+
+    return $url;
+}
+
+/**
+ * An image is a URL, or a path relative to the project directory (e.g. "media/bottle.webp" in a dataset).
+ */
+function download_import_image(string $url, string $host, string $code, bool $quiet = false): ?string
+{
+    if (is_local_import_image($url)) {
+        return copy_local_import_image($url, $host, $code, $quiet);
+    }
+
+    $url = normalize_image_url($url);
+
+    if ('' === $url || !filter_var($url, \FILTER_VALIDATE_URL)) {
+        return null;
+    }
+
+    $directory = castor_import_media_dir($host);
+    $webpFilename = $code . '.webp';
+    $webpPath = $directory . '/' . $webpFilename;
+
+    if (!is_dir($directory)) {
+        mkdir($directory, 0o775, true);
+    }
+
+    if (file_exists($webpPath) && filesize($webpPath) > 0) {
+        return import_media_fixture_path($host, $webpFilename);
+    }
+
+    $sourceExtension = image_extension_from_url($url);
+    $sourceFilename = $code . '.' . $sourceExtension;
+    $sourcePath = $directory . '/' . $sourceFilename;
+
+    if (!file_exists($sourcePath) || 0 === filesize($sourcePath)) {
+        try {
+            $client = \Castor\http_client()->withOptions([
+                'timeout' => 30,
+                'headers' => ['User-Agent' => 'colibri-starter-import/1.0'],
+            ]);
+            $response = $client->request('GET', $url);
+
+            $detectedExtension = image_extension_from_content_type($response->getHeaders()['content-type'][0] ?? null);
+
+            if (null !== $detectedExtension && $detectedExtension !== $sourceExtension) {
+                $sourceExtension = $detectedExtension;
+                $sourceFilename = $code . '.' . $sourceExtension;
+                $sourcePath = $directory . '/' . $sourceFilename;
+            }
+
+            if (!stream_http_response_to_file($response, $client, $sourcePath)) {
+                return null;
+            }
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    if (!file_exists($sourcePath) || 0 === filesize($sourcePath)) {
+        return null;
+    }
+
+    if ('webp' === $sourceExtension) {
+        if ($sourcePath !== $webpPath) {
+            rename($sourcePath, $webpPath);
+        }
+
+        return import_media_fixture_path($host, $webpFilename);
+    }
+
+    if (!convert_image_to_webp($sourcePath, $webpPath, $quiet)) {
+        if (!$quiet && \function_exists('imagewebp')) {
+            io()->warning(\sprintf(
+                'Could not convert image "%s" to WebP for "%s". The image will be skipped.',
+                $url,
+                $code,
+            ));
+        }
+        cleanup_import_source_image($sourcePath, $webpPath);
+
+        return null;
+    }
+
+    cleanup_import_source_image($sourcePath, $webpPath);
+
+    return import_media_fixture_path($host, $webpFilename);
+}
+
+function is_local_import_image(string $image): bool
+{
+    $image = trim($image);
+
+    return '' !== $image && !str_starts_with($image, '//') && !preg_match('#^[a-z][a-z0-9+.-]*:#i', $image);
+}
+
+/**
+ * The relative path must stay inside the project directory: "..", absolute paths and missing files are skipped.
+ */
+function resolve_local_import_image_path(string $relativePath, string $host): ?string
+{
+    $relativePath = str_replace('\\', '/', trim($relativePath));
+
+    if (str_starts_with($relativePath, '/') || \in_array('..', explode('/', $relativePath), true)) {
+        return null;
+    }
+
+    $path = castor_host_dir($host) . '/' . preg_replace('#^(\./)+#', '', $relativePath);
+
+    return is_file($path) && filesize($path) > 0 ? $path : null;
+}
+
+function copy_local_import_image(string $relativePath, string $host, string $code, bool $quiet = false): ?string
+{
+    $webpFilename = $code . '.webp';
+    $webpPath = castor_import_media_dir($host) . '/' . $webpFilename;
+
+    if (file_exists($webpPath) && filesize($webpPath) > 0) {
+        return import_media_fixture_path($host, $webpFilename);
+    }
+
+    $sourcePath = resolve_local_import_image_path($relativePath, $host);
+
+    if (null === $sourcePath) {
+        if (!$quiet) {
+            io()->warning(\sprintf('Image "%s" of "%s" not found in the project directory.', $relativePath, $code));
+        }
+
+        return null;
+    }
+
+    $copied = 'webp' === strtolower(pathinfo($sourcePath, \PATHINFO_EXTENSION))
+        ? copy($sourcePath, $webpPath)
+        : convert_image_to_webp($sourcePath, $webpPath, $quiet);
+
+    return $copied ? import_media_fixture_path($host, $webpFilename) : null;
+}
+
+function cleanup_import_source_image(string $sourcePath, string $webpPath): void
+{
+    if ($sourcePath !== $webpPath && file_exists($sourcePath)) {
+        unlink($sourcePath);
+    }
+}
+
+function convert_image_to_webp(string $sourcePath, string $destinationPath, bool $quiet = false): bool
+{
+    if (!\function_exists('imagewebp')) {
+        warn_webp_unavailable_once($quiet);
+
+        return false;
+    }
+
+    $extension = strtolower(pathinfo($sourcePath, \PATHINFO_EXTENSION));
+
+    $image = match ($extension) {
+        'webp' => @imagecreatefromwebp($sourcePath),
+        'png' => @imagecreatefrompng($sourcePath),
+        'gif' => @imagecreatefromgif($sourcePath),
+        'jpg', 'jpeg' => @imagecreatefromjpeg($sourcePath),
+        'avif' => \function_exists('imagecreatefromavif') ? @imagecreatefromavif($sourcePath) : false,
+        default => false,
+    };
+
+    if (!\is_object($image)) {
+        return false;
+    }
+
+    if (\in_array($extension, ['png', 'gif', 'avif'], true)) {
+        imagepalettetotruecolor($image);
+        imagealphablending($image, true);
+        imagesavealpha($image, true);
+    }
+
+    $image = downscale_image_resource($image);
+
+    $converted = imagewebp($image, $destinationPath, 80);
+    $success = $converted && file_exists($destinationPath) && filesize($destinationPath) > 0;
+    imagedestroy($image);
+
+    return $success;
+}
+
+/**
+ * @param \Symfony\Contracts\HttpClient\ResponseInterface        $response
+ * @param \Symfony\Contracts\HttpClient\HttpClientInterface      $client
+ */
+function stream_http_response_to_file(object $response, object $client, string $destinationPath): bool
+{
+    $fileHandle = fopen($destinationPath, 'w');
+
+    if (false === $fileHandle) {
+        return false;
+    }
+
+    try {
+        foreach ($client->stream($response) as $chunk) {
+            if ($chunk->isTimeout()) {
+                continue;
+            }
+
+            $written = fwrite($fileHandle, $chunk->getContent());
+
+            if (false === $written) {
+                fclose($fileHandle);
+                unlink($destinationPath);
+
+                return false;
+            }
+        }
+    } catch (\Throwable) {
+        fclose($fileHandle);
+
+        if (file_exists($destinationPath)) {
+            unlink($destinationPath);
+        }
+
+        return false;
+    }
+
+    fclose($fileHandle);
+
+    return file_exists($destinationPath) && filesize($destinationPath) > 0;
+}
+
+/**
+ * @param \GdImage $image
+ */
+function downscale_image_resource(\GdImage $image, int $maxDimension = IMPORT_IMAGE_MAX_DIMENSION): \GdImage
+{
+    $width = imagesx($image);
+    $height = imagesy($image);
+
+    if (false === $width || false === $height || ($width <= $maxDimension && $height <= $maxDimension)) {
+        return $image;
+    }
+
+    $ratio = min($maxDimension / $width, $maxDimension / $height);
+    $newWidth = max(1, (int) round($width * $ratio));
+    $newHeight = max(1, (int) round($height * $ratio));
+
+    $scaled = imagescale($image, $newWidth, $newHeight, \IMG_BILINEAR_FIXED);
+
+    if (!\is_object($scaled)) {
+        return $image;
+    }
+
+    imagedestroy($image);
+
+    return $scaled;
+}
+
+function warn_webp_unavailable_once(bool $quiet): void
+{
+    static $warned = false;
+
+    if ($quiet || $warned) {
+        return;
+    }
+
+    $warned = true;
+    io()->warning('PHP GD extension does not support WebP (imagewebp unavailable). Import images will be skipped.');
+}
+
+function image_extension_from_url(string $url): string
+{
+    $path = parse_url($url, \PHP_URL_PATH);
+
+    if (!\is_string($path)) {
+        return 'jpg';
+    }
+
+    $extension = strtolower(pathinfo($path, \PATHINFO_EXTENSION));
+
+    if ('' !== $extension && preg_match('/^(jpg|jpeg|png|gif|webp|avif)$/', $extension)) {
+        return 'jpg' === $extension ? 'jpg' : $extension;
+    }
+
+    return 'jpg';
+}
+
+function image_extension_from_content_type(?string $contentType): ?string
+{
+    if (null === $contentType) {
+        return null;
+    }
+
+    return match (true) {
+        str_contains($contentType, 'image/png') => 'png',
+        str_contains($contentType, 'image/webp') => 'webp',
+        str_contains($contentType, 'image/gif') => 'gif',
+        str_contains($contentType, 'image/avif') => 'avif',
+        str_contains($contentType, 'image/jpeg') => 'jpg',
+        default => null,
+    };
+}
+
+/**
+ * @param array<string, mixed> $stats
+ *
+ * @return array<string, mixed>
+ */

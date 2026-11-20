@@ -1,0 +1,13 @@
+<?php
+
+declare(strict_types=1);
+
+namespace OpenColibri\Starter\DatasetBuilder\Dto;
+
+final class TaxonGroupChildEntry
+{
+    public string $name = '';
+
+    /** @var string[] */
+    public array $collections = [];
+}
