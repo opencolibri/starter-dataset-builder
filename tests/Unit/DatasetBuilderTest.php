@@ -114,6 +114,15 @@ final class DatasetBuilderTest extends TestCase
         }
 
         static::assertCount(2, Datasets::get('tea')->products());
+
+        // A first build that fails leaves no empty directory.
+        try {
+            DatasetBuilder::build('test', 'coffee', 'Coffee', 'Coffees', null, 20);
+            static::fail('The build fails.');
+        } catch (\RuntimeException) {
+        }
+
+        static::assertDirectoryDoesNotExist($this->root . '/.castor/import/datasets/coffee');
     }
 
     public function testExportsADatasetAsAZip(): void

@@ -10,7 +10,9 @@ use Castor\Attribute\AsOption;
 use Castor\Attribute\AsTask;
 use Castor\Exception\ProblemException;
 use OpenColibri\Starter\DatasetBuilder\DatasetBuilder;
+use OpenColibri\Starter\DatasetBuilder\DatasetEditor;
 use OpenColibri\Starter\DatasetBuilder\DatasetSources;
+use Symfony\Component\Filesystem\Filesystem;
 
 use function Castor\io;
 use function OpenColibri\Starter\DatasetBuilder\normalize_import_name;
@@ -19,7 +21,7 @@ use const OpenColibri\Starter\DatasetBuilder\IMPORT_AI_PRODUCT_LIMIT;
 use const OpenColibri\Starter\DatasetBuilder\IMPORT_FETCHED_PRODUCT_LIMIT;
 
 /**
- * Builds datasets with AI. See docs/datasets/build.md.
+ * Builds datasets with AI, or by hand (empty dataset, collections and products, zip import). See docs/datasets/build.md.
  */
 final class DatasetTasks
 {
@@ -70,6 +72,149 @@ final class DatasetTasks
                     $slug = normalize_import_name('' !== trim((string) $dataset) ? (string) $dataset : $name);
                     DatasetBuilder::build($source, $slug, $name, trim((string) $description), $url, $limit);
                     io()->writeln(\sprintf('Next: castor sylius:dataset:load %s', $slug));
+                });
+            },
+        ];
+
+        yield [
+            'task' => new AsTask('create', 'sylius:dataset', 'Create an empty dataset, to fill by hand (sylius:dataset:product, sylius:dataset:collection)'),
+            /** @phpstan-ignore-next-line  */
+            'function' => #[AsApi(lock: 'dataset:{dataset}')] function (
+                #[AsOption]
+                ?string $name = null,
+                #[AsOption(description: 'Dataset slug (defaults to the slug of the name)')]
+                ?string $dataset = null,
+                #[AsOption]
+                ?string $description = null,
+                #[AsOption(description: 'Theme suggested to the shops created from it')]
+                ?string $theme = null,
+            ): void {
+                self::run(static function () use ($name, $dataset, $description, $theme): void {
+                    $created = DatasetEditor::create((string) $dataset, (string) $name, (string) $description, $theme);
+                    io()->success(\sprintf('Dataset %s created.', $created->slug));
+                    io()->writeln($created->slug);
+                });
+            },
+        ];
+
+        yield [
+            'task' => new AsTask('update', 'sylius:dataset', 'Change the name, description and suggested theme of a dataset built here'),
+            /** @phpstan-ignore-next-line  */
+            'function' => #[AsApi(lock: 'dataset:{dataset}')] function (
+                #[AsArgument]
+                string $dataset,
+                #[AsOption]
+                ?string $name = null,
+                #[AsOption]
+                ?string $description = null,
+                #[AsOption]
+                ?string $theme = null,
+            ): void {
+                self::run(static function () use ($dataset, $name, $description, $theme): void {
+                    DatasetEditor::update(trim($dataset), (string) $name, (string) $description, $theme);
+                    io()->success(\sprintf('Dataset %s updated.', trim($dataset)));
+                });
+            },
+        ];
+
+        yield [
+            'task' => new AsTask('collection', 'sylius:dataset', 'Add, change or remove a collection of a dataset built here'),
+            /** @phpstan-ignore-next-line  */
+            'function' => #[AsApi(lock: 'dataset:{dataset}')] function (
+                #[AsArgument]
+                string $dataset,
+                #[AsOption(description: 'Position of the collection to change in collections.yaml (from 0); a new collection without it')]
+                ?int $index = null,
+                #[AsOption(description: 'The name of the collection at this position: refuses the change when it is another one')]
+                ?string $expected = null,
+                #[AsOption]
+                ?string $name = null,
+                #[AsOption]
+                ?string $description = null,
+                #[AsOption(description: 'Name or code of the top-level collection it is shown under')]
+                ?string $parent = null,
+                #[AsOption(description: 'Image to store, uploaded in .castor/import/var/.uploads')]
+                ?string $image = null,
+                #[AsOption(description: 'Remove the collection: its products are kept, without a collection')]
+                bool $remove = false,
+            ): void {
+                self::run(static function () use ($dataset, $index, $expected, $name, $description, $parent, $image, $remove): void {
+                    if ($remove) {
+                        DatasetEditor::removeCollection(trim($dataset), $index ?? throw new \InvalidArgumentException('--index is required to remove a collection.'), $expected);
+                        io()->success('Collection removed.');
+
+                        return;
+                    }
+
+                    DatasetEditor::saveCollection(trim($dataset), $index, $expected, ['name' => (string) $name, 'description' => $description, 'parent' => $parent], $image);
+                    io()->success(\sprintf('Collection "%s" saved.', trim((string) $name)));
+                });
+            },
+        ];
+
+        yield [
+            'task' => new AsTask('product', 'sylius:dataset', 'Add, change or remove a product of a dataset built here'),
+            /** @phpstan-ignore-next-line  */
+            'function' => #[AsApi(lock: 'dataset:{dataset}')] function (
+                #[AsArgument]
+                string $dataset,
+                #[AsOption(description: 'Position of the product to change in products.yaml (from 0); a new product without it')]
+                ?int $index = null,
+                #[AsOption(description: 'The title of the product at this position: refuses the change when it is another one')]
+                ?string $expected = null,
+                #[AsOption]
+                ?string $title = null,
+                #[AsOption(description: 'Name or code of its collection')]
+                ?string $collection = null,
+                #[AsOption(description: 'Price in euros')]
+                ?string $price = null,
+                #[AsOption]
+                ?string $description = null,
+                #[AsOption(description: 'Image to store, uploaded in .castor/import/var/.uploads')]
+                ?string $image = null,
+                #[AsOption(description: 'Remove the product')]
+                bool $remove = false,
+            ): void {
+                self::run(static function () use ($dataset, $index, $expected, $title, $collection, $price, $description, $image, $remove): void {
+                    if ($remove) {
+                        DatasetEditor::removeProduct(trim($dataset), $index ?? throw new \InvalidArgumentException('--index is required to remove a product.'), $expected);
+                        io()->success('Product removed.');
+
+                        return;
+                    }
+
+                    DatasetEditor::saveProduct(trim($dataset), $index, $expected, ['title' => (string) $title, 'collection' => $collection, 'price' => $price, 'description' => $description], $image);
+                    io()->success(\sprintf('Product "%s" saved.', trim((string) $title)));
+                });
+            },
+        ];
+
+        yield [
+            'task' => new AsTask('import', 'sylius:dataset', 'Import a dataset from a zip (the layout of sylius:dataset:export)'),
+            /** @phpstan-ignore-next-line  */
+            'function' => #[AsApi(lock: 'dataset:import')] function (
+                #[AsArgument(description: 'The zip, uploaded in .castor/import/var/.uploads (its file name), or a path')]
+                string $file,
+                #[AsOption(description: 'Dataset slug (defaults to the directory of the zip, or the slug of its name)')]
+                ?string $dataset = null,
+                #[AsOption(description: 'Replace the dataset of this slug built here')]
+                bool $replace = false,
+            ): void {
+                self::run(static function () use ($file, $dataset, $replace): void {
+                    // A path given on the command line is copied as an upload: the import removes its upload.
+                    if (str_contains($file, '/') || str_contains($file, \DIRECTORY_SEPARATOR)) {
+                        if (!is_file($file)) {
+                            throw new \InvalidArgumentException(\sprintf('File "%s" not found.', $file));
+                        }
+
+                        $upload = 'cli-' . bin2hex(random_bytes(6)) . '.zip';
+                        (new Filesystem())->copy($file, DatasetEditor::uploadsDir() . '/' . $upload);
+                        $file = $upload;
+                    }
+
+                    $imported = DatasetEditor::import($file, $dataset, $replace);
+                    io()->success(\sprintf('Dataset %s imported.', $imported->slug));
+                    io()->writeln($imported->slug);
                 });
             },
         ];

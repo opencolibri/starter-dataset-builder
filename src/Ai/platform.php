@@ -22,7 +22,7 @@ function ai_api_key(): string
     $apiKey = $_ENV['AI_API_KEY'] ?? $_SERVER['AI_API_KEY'] ?? getenv('AI_API_KEY');
 
     if (!\is_string($apiKey) || '' === trim($apiKey)) {
-        throw new \RuntimeException('AI_API_KEY is not set in .castor/.env.');
+        throw new \RuntimeException('AI_API_KEY is not set: add it to .castor/.env.local (see docs/datasets/build.md).');
     }
 
     return trim($apiKey);

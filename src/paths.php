@@ -150,7 +150,7 @@ function import_log(string $message): void
 }
 
 /**
- * Loads the AI settings (AI_PROVIDER, AI_MODEL…) of the project: .env, then .env.local.
+ * Loads the AI settings (AI_PROVIDER, AI_MODEL…) of the project, once.
  */
 function ensure_import_ai_ready(): void
 {
@@ -160,20 +160,32 @@ function ensure_import_ai_ready(): void
         return;
     }
 
-    $root = Workspace::root();
+    load_ai_env(Workspace::castorDir(), Workspace::root());
+    $loaded = true;
+}
+
+/**
+ * The AI settings live in .castor/.env (committed, see .castor/.env.example) and .castor/.env.local (ignored by git:
+ * the API key, the local choices). The .env, .env.dist and .env.local of the project root are read too, after them:
+ * a variable already set (by the environment, or a file read before) is kept, except by a .env.local.
+ */
+function load_ai_env(string $castorDir, string $root): void
+{
     $dotenv = new Dotenv();
 
-    foreach (['.env', '.env.dist'] as $file) {
-        if (is_file($root . '/' . $file)) {
-            $dotenv->load($root . '/' . $file);
+    foreach ([[$castorDir . '/.env'], [$root . '/.env', $root . '/.env.dist']] as $candidates) {
+        foreach ($candidates as $file) {
+            if (is_file($file)) {
+                $dotenv->load($file);
 
-            break;
+                break;
+            }
         }
     }
 
-    if (is_file($root . '/.env.local')) {
-        $dotenv->overload($root . '/.env.local');
+    foreach ([$castorDir . '/.env.local', $root . '/.env.local'] as $file) {
+        if (is_file($file)) {
+            $dotenv->overload($file);
+        }
     }
-
-    $loaded = true;
 }

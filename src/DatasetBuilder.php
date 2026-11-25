@@ -32,6 +32,8 @@ final class DatasetBuilder
         }
 
         $filesystem = new Filesystem();
+        // A first build that fails leaves no empty directory behind.
+        $isNew = !is_dir(castor_host_dir($slug));
         $previousConfig = load_dataset_config($slug);
         $productsPath = castor_var_path($slug);
         $backupPath = $productsPath . '.previous';
@@ -54,6 +56,8 @@ final class DatasetBuilder
         if (!is_file($productsPath)) {
             if (is_file($backupPath)) {
                 $filesystem->rename($backupPath, $productsPath);
+            } elseif ($isNew) {
+                $filesystem->remove(castor_host_dir($slug));
             }
 
             throw new \RuntimeException(\sprintf('The %s build of dataset "%s" did not write any product.', $source, $slug));

@@ -1,6 +1,6 @@
 # opencolibri/starter-dataset-builder
 
-Castor tasks building datasets with AI, from a description or from the catalog of an existing website: `sylius:dataset:build`, `sylius:dataset:images`, `sylius:dataset:export`, `sylius:dataset:delete`. Load them with `opencolibri/starter-fixtures`.
+Castor tasks building datasets with AI, from a description or from the catalog of an existing website (`sylius:dataset:build`), by hand (`sylius:dataset:create`, `sylius:dataset:update`, `sylius:dataset:collection`, `sylius:dataset:product`) or from a zip (`sylius:dataset:import`), then `sylius:dataset:images`, `sylius:dataset:export`, `sylius:dataset:delete`. Load them with `opencolibri/starter-fixtures`.
 
 ## Installation
 
