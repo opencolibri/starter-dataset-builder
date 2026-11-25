@@ -21,8 +21,11 @@ final class DatasetBuilder
 {
     /**
      * Builds (or rebuilds) a dataset. The previous catalog is kept when the source fails.
+     *
+     * @param bool $images false leaves the images to download or generate later (sylius:dataset:images), or to add by
+     *                     hand: the products keep their image URL or prompt
      */
-    public static function build(string $source, string $slug, string $name, string $description, ?string $url, int $limit): Dataset
+    public static function build(string $source, string $slug, string $name, string $description, ?string $url, int $limit, bool $images = true): Dataset
     {
         $build = DatasetSources::get($source);
         $existing = Datasets::find($slug);
@@ -76,8 +79,11 @@ final class DatasetBuilder
             'created_at' => (new \DateTimeImmutable())->format(\DateTimeInterface::ATOM),
         ]);
 
-        self::storeImages($slug);
-        io()->success(\sprintf('Dataset %s built.', $slug));
+        if ($images) {
+            self::storeImages($slug);
+        }
+
+        io()->success(\sprintf('Dataset %s built%s.', $slug, $images ? '' : ', without its images'));
 
         return Datasets::get($slug);
     }

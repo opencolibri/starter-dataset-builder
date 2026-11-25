@@ -101,6 +101,25 @@ final class DatasetBuilderTest extends TestCase
         DatasetBuilder::build('test', 'wine', 'Wine', 'Wine', null, 20);
     }
 
+    public function testBuildsADatasetWithoutItsImages(): void
+    {
+        DatasetSources::register('test', static function (string $slug): void {
+            file_put_contents(castor_host_dir($slug) . '/products.yaml', Yaml::dump(['products' => [
+                ['title' => 'Green Tea', 'collection_name' => 'Green', 'price_eur' => 9, 'image_prompt' => 'A cup of green tea'],
+                ['title' => 'Black Tea', 'collection_name' => 'Green', 'price_eur' => 8, 'image' => 'https://example.com/black.jpg'],
+            ]]));
+            file_put_contents(castor_host_dir($slug) . '/collections.yaml', Yaml::dump(['collections' => [['name' => 'Green']]]));
+        });
+
+        $dataset = DatasetBuilder::build('test', 'tea', 'Tea House', 'Teas', null, 20, images: false);
+
+        // Nothing is downloaded or generated: the prompt and the URL stay, for sylius:dataset:images.
+        static::assertSame('A cup of green tea', $dataset->products()[0]['image_prompt']);
+        static::assertSame('https://example.com/black.jpg', $dataset->products()[1]['image']);
+        static::assertSame([], glob($dataset->path . '/media/*') ?: []);
+        static::assertSame(0, $dataset->describe()['imageCount']);
+    }
+
     public function testKeepsThePreviousCatalogWhenTheSourceFails(): void
     {
         $this->writeDataset($this->root . '/.castor/import/datasets/tea', ['name' => 'Tea House']);

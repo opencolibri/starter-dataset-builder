@@ -46,8 +46,12 @@ final class DatasetTasks
                 ?string $url = null,
                 #[AsOption(description: 'Number of products (20 at most for an AI catalog, 100 by default for a fetched one)')]
                 ?int $limit = null,
+                #[AsOption(description: 'Leave the images to download or generate later (sylius:dataset:images), or to add by hand')]
+                bool $skipImages = false,
             ): void {
-                self::run(static function () use ($source, $dataset, $name, $description, $url, $limit): void {
+                self::run(static function () use ($source, $dataset, $name, $description, $url, $limit, $skipImages): void {
+                    $images = !$skipImages;
+
                     $name = trim((string) ($name ?? io()->ask('Name of the shop')));
 
                     if ('' === $name) {
@@ -70,8 +74,10 @@ final class DatasetTasks
                     }
 
                     $slug = normalize_import_name('' !== trim((string) $dataset) ? (string) $dataset : $name);
-                    DatasetBuilder::build($source, $slug, $name, trim((string) $description), $url, $limit);
-                    io()->writeln(\sprintf('Next: castor sylius:dataset:load %s', $slug));
+                    DatasetBuilder::build($source, $slug, $name, trim((string) $description), $url, $limit, $images);
+                    io()->writeln($images
+                        ? \sprintf('Next: castor sylius:dataset:load %s', $slug)
+                        : \sprintf('Next: castor sylius:dataset:images %s (or add the images by hand), then castor sylius:dataset:load %s', $slug, $slug));
                 });
             },
         ];
