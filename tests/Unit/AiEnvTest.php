@@ -7,13 +7,15 @@ namespace OpenColibri\Starter\DatasetBuilder\Tests\Unit;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Filesystem\Filesystem;
 
+use function OpenColibri\Starter\DatasetBuilder\ai_image_model;
 use function OpenColibri\Starter\DatasetBuilder\ai_model;
 use function OpenColibri\Starter\DatasetBuilder\ai_provider;
 use function OpenColibri\Starter\DatasetBuilder\load_ai_env;
+use function OpenColibri\Starter\DatasetBuilder\validate_ai_config;
 
 final class AiEnvTest extends TestCase
 {
-    private const VARIABLES = ['AI_PROVIDER', 'AI_MODEL', 'SYMFONY_DOTENV_VARS'];
+    private const VARIABLES = ['AI_PROVIDER', 'AI_MODEL', 'AI_API_KEY', 'SYMFONY_DOTENV_VARS'];
 
     private string $root;
 
@@ -49,6 +51,20 @@ final class AiEnvTest extends TestCase
 
         static::assertSame('ollama', ai_provider());
         static::assertSame('llama3.1:latest', ai_model());
+    }
+
+    public function testMistralNeedsAnApiKeyAndHasADefaultModel(): void
+    {
+        file_put_contents($this->root . '/.castor/.env', "AI_PROVIDER=mistral\n");
+
+        load_ai_env($this->root . '/.castor', $this->root);
+
+        static::assertSame('mistral', ai_provider());
+        static::assertSame('mistral-small-latest', ai_model());
+        static::assertSame('mistral-medium-latest', ai_image_model());
+
+        $this->expectException(\RuntimeException::class);
+        validate_ai_config();
     }
 
     private function clear(): void

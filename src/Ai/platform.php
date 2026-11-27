@@ -10,6 +10,7 @@ use OpenColibri\Starter\DatasetBuilder\Dto\ProductSelectionEntry;
 use OpenColibri\Starter\DatasetBuilder\Dto\ProductSelectionExtraction;
 use OpenColibri\Starter\DatasetBuilder\Dto\ProductTaxonAssignmentEntry;
 use OpenColibri\Starter\DatasetBuilder\Dto\ProductTaxonAssignmentExtraction;
+use Symfony\AI\Platform\Bridge\Mistral\Factory as MistralFactory;
 use Symfony\AI\Platform\Bridge\Ollama\Factory as OllamaFactory;
 use Symfony\AI\Platform\Bridge\OpenRouter\Factory as OpenRouterFactory;
 use Symfony\AI\Platform\Message\Message;
@@ -38,8 +39,8 @@ function ai_provider(): string
 
     $provider = strtolower(trim($provider));
 
-    if (!\in_array($provider, ['ollama', 'openrouter'], true)) {
-        throw new \RuntimeException(\sprintf('Invalid AI_PROVIDER "%s". Expected ollama or openrouter.', $provider));
+    if (!\in_array($provider, ['ollama', 'openrouter', 'mistral'], true)) {
+        throw new \RuntimeException(\sprintf('Invalid AI_PROVIDER "%s". Expected ollama, openrouter or mistral.', $provider));
     }
 
     return $provider;
@@ -58,7 +59,7 @@ function ai_base_url(): string
 
 function validate_ai_config(): void
 {
-    if ('openrouter' === ai_provider()) {
+    if (\in_array(ai_provider(), ['openrouter', 'mistral'], true)) {
         ai_api_key();
     }
 }
@@ -73,6 +74,7 @@ function ai_model(): string
 
     return match (ai_provider()) {
         'ollama' => 'qwen2.5:latest',
+        'mistral' => 'mistral-small-latest',
         default => 'openai/gpt-oss-20b:free',
     };
 }
@@ -386,6 +388,10 @@ function create_ai_platform(): object
             httpClient: $client,
         ),
         'openrouter' => OpenRouterFactory::createPlatform(
+            apiKey: ai_api_key(),
+            httpClient: $client,
+        ),
+        'mistral' => MistralFactory::createPlatform(
             apiKey: ai_api_key(),
             httpClient: $client,
         ),

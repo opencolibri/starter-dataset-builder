@@ -25,6 +25,7 @@ function ai_image_model(): string
 
     return match (ai_provider()) {
         'ollama' => 'x/flux2-klein',
+        'mistral' => 'mistral-medium-latest',
         default => 'black-forest-labs/flux.2-klein-4b',
     };
 }
@@ -416,7 +417,15 @@ function generate_import_image_from_prompt(string $prompt, string $projectSlug, 
         return null;
     }
 
-    $sourcePath = $directory . '/' . $code . '.png';
+    // Providers return PNG, JPEG or WebP: the extension must match the bytes for the WebP conversion.
+    $mime = @getimagesizefromstring($binary)['mime'] ?? 'image/png';
+    $extension = match ($mime) {
+        'image/jpeg' => 'jpg',
+        'image/webp' => 'webp',
+        'image/gif' => 'gif',
+        default => 'png',
+    };
+    $sourcePath = $directory . '/' . $code . '.' . $extension;
 
     if (false === file_put_contents($sourcePath, $binary)) {
         return null;
@@ -442,6 +451,7 @@ function request_ai_image_binary(string $prompt): string
 {
     return match (ai_provider()) {
         'ollama' => request_ollama_image_binary($prompt),
+        'mistral' => request_mistral_image_binary($prompt),
         default => request_openrouter_image_binary($prompt),
     };
 }
@@ -535,4 +545,85 @@ function request_openrouter_image_binary(string $prompt): string
     }
 
     throw new \RuntimeException('OpenRouter image response did not contain usable image bytes.');
+}
+
+/**
+ * Mistral has no plain image endpoint: images come from a conversation using the built-in
+ * `image_generation` tool. No agent is created, because some organizations cannot create agents.
+ */
+function request_mistral_image_binary(string $prompt): string
+{
+    $client = ai_http_client()->withOptions([
+        'base_uri' => 'https://api.mistral.ai',
+        'headers' => ['Authorization' => 'Bearer ' . ai_api_key()],
+    ]);
+
+    $conversation = $client->request('POST', '/v1/conversations', [
+        'json' => [
+            'model' => ai_image_model(),
+            'inputs' => 'Generate an image: ' . $prompt,
+            'tools' => [['type' => 'image_generation']],
+            'stream' => false,
+            'store' => false,
+        ],
+    ])->toArray(false);
+
+    $outputs = $conversation['outputs'] ?? null;
+
+    if (!\is_array($outputs)) {
+        throw new \RuntimeException(\sprintf('Mistral image generation failed: %s', mistral_error_message($conversation)));
+    }
+
+    foreach ($outputs as $output) {
+        if (!\is_array($output)) {
+            continue;
+        }
+
+        // The tool execution entry carries the URL of the generated image.
+        $result = $output['info']['result'] ?? null;
+
+        if (\is_string($result)) {
+            $decoded = json_decode($result, true);
+            $url = \is_array($decoded) ? ($decoded['url'] ?? null) : null;
+
+            if (\is_string($url) && '' !== $url) {
+                return download_mistral_image($url);
+            }
+        }
+
+        // Otherwise the answer holds a file chunk (downloaded through the files API).
+        if (\is_array($output['content'] ?? null)) {
+            foreach ($output['content'] as $chunk) {
+                if (\is_array($chunk) && 'tool_file' === ($chunk['type'] ?? null) && \is_string($chunk['file_id'] ?? null)) {
+                    return $client->request('GET', '/v1/files/' . rawurlencode($chunk['file_id']) . '/content', [
+                        'headers' => ['Accept' => 'application/octet-stream'],
+                    ])->getContent();
+                }
+            }
+        }
+    }
+
+    throw new \RuntimeException('Mistral image response did not contain an image.');
+}
+
+function download_mistral_image(string $url): string
+{
+    // The URL is pre-signed: it must not receive the API key.
+    $binary = http_client()->request('GET', $url)->getContent();
+
+    if ('' === $binary) {
+        throw new \RuntimeException('Mistral image download returned no data.');
+    }
+
+    return $binary;
+}
+
+/**
+ * @param array<mixed> $payload
+ */
+function mistral_error_message(array $payload): string
+{
+    $message = $payload['message'] ?? $payload['detail'] ?? $payload['error']['message'] ?? null;
+
+    return \is_string($message) ? $message : 'unexpected response';
 }
